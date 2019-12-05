@@ -1,7 +1,21 @@
 #![no_main]
 #![no_std]
 
-extern crate panic_halt;
+// The aim here is for me to be able to write an effect,
+// and not have to think about how it's scheduled and how lights are actually updated.
+//
+// As an effect, I write:
+// - the `State` I care about; and
+// - provide a state transition function.
+//
+// The result of the transition is:
+// - some new state; plus
+// -a bunch of actions to carry out (light on, light off).
+//
+// The RTFM init sets all this up, and interprets the actions into changes to the LED array.
+//
+
+extern crate panic_semihosting;
 
 use stm32f4xx_hal as hal;
 use ws2812_spi as ws2812;
@@ -19,8 +33,12 @@ use cortex_m_semihosting::hprintln;
 
 use rtfm::cyccnt::U32Ext;
 
-const PERIOD: u32 = 48_000_000;
-const NUM_LEDS: usize = 4;
+// How often to schedule an update (e.g., 8th of a second)
+const PERIOD: u32 = 48_000_000 / 8;
+
+// Index 0 to 49
+const NUM_LEDS: usize = 50;
+const LAST_LED: usize = NUM_LEDS - 1;
 
 // Types for WS
 use hal::gpio::gpiob::{PB3, PB5};
@@ -30,14 +48,93 @@ use hal::stm32::SPI1;
 
 type Pins = (PB3<Alternate<AF5>>, NoMiso, PB5<Alternate<AF5>>);
 
+//
+// Application-specific types and functions
+//
+
+#[derive(Clone, Debug)]
+enum Direction {
+    Up,
+    Down,
+}
+
+#[derive(Debug, Clone)]
+pub struct State {
+    idx: usize,
+    dir: Direction,
+}
+
+enum Position {
+    AtStart,
+    AtEnd,
+    SomewhereBetween,
+}
+
+impl Position {
+    fn of(idx: usize) -> Position {
+        match idx {
+            0 => Position::AtStart,
+            LAST_LED => Position::AtEnd,
+            _ => Position::SomewhereBetween,
+        }
+    }
+}
+
+fn next_state(state: &State) -> (State, [Action; 2]) {
+    let dir = match (Position::of(state.idx), &state.dir) {
+        (Position::AtEnd, Direction::Up) => Direction::Down,
+        (Position::AtStart, Direction::Down) => Direction::Up,
+        (_, dir) => dir.clone(),
+    };
+
+    let idx = match dir {
+        Direction::Up => state.idx + 1,
+        Direction::Down => state.idx - 1,
+    };
+
+    let new_state = State { idx, dir };
+
+    let colour = BLUE;
+
+    let actions = [Action::Off { idx: state.idx }, Action::On { idx, colour }];
+
+    (new_state, actions)
+}
+
+//
+// Glue language for communicating changs to the LED scheduled controller
+//
+
+#[derive(Debug)]
+enum Action {
+    On { idx: usize, colour: RGB8 },
+    Off { idx: usize },
+}
+
+const BLACK: RGB8 = RGB8 { r: 0, g: 0, b: 0 };
+const BLUE: RGB8 = RGB8 {
+    r: 0,
+    g: 0,
+    b: 0xA0,
+};
+
+//
+// Ideally evertything below here would be not tied to the specific application
+// (effect) I'm trying to run.
+// But it's not:  there's some set up in init to do (which is fair enoough)
+// and a few TODOs to sort out
+//
+
 #[rtfm::app(device = stm32f4xx_hal::stm32, peripherals = true, monotonic = rtfm::cyccnt::CYCCNT)]
 const APP: () = {
     struct Resources {
         ws: Ws2812<Spi<SPI1, Pins>>,
         itm: cortex_m::peripheral::ITM,
+        data: [RGB8; NUM_LEDS],
+        state: State,
     }
 
-    #[init(schedule = [lights_on])]
+    #[init(schedule = [step])]
     fn init(mut cx: init::Context) -> init::LateResources {
         // Device specific peripherals
         let dp: stm32::Peripherals = cx.device;
@@ -75,49 +172,62 @@ const APP: () = {
         let ws = Ws2812::new(spi);
 
         cx.schedule
-            .lights_on(cx.start + PERIOD.cycles())
-            .expect("failed schedule initial lights on");
+            .step(cx.start + PERIOD.cycles())
+            .expect("failed schedule initial step");
 
-        init::LateResources { ws, itm }
-    }
-
-    #[task(schedule = [lights_off], resources = [ws, itm])]
-    fn lights_on(cx: lights_on::Context) {
-        let lights_on::Resources { ws, itm } = cx.resources;
-        let port = &mut itm.stim[0];
-
-        iprintln!(port, "ON");
-
-        let blue = RGB8 {
-            b: 0xa0,
-            g: 0,
-            r: 0,
+        let state = State {
+            idx: 0,
+            dir: Direction::Up,
         };
-        let data = [blue; NUM_LEDS];
 
-        ws.write(data.iter().cloned())
-            .expect("Failed to write lights_on");
+        let mut data = [BLACK; NUM_LEDS];
+        data[0] = BLUE;
 
-        cx.schedule
-            .lights_off(cx.scheduled + PERIOD.cycles())
-            .expect("Failed to schedule lights_off");
+        init::LateResources {
+            ws,
+            itm,
+            data,
+            state,
+        }
     }
 
-    #[task(schedule = [lights_on], resources = [ws, itm])]
-    fn lights_off(cx: lights_off::Context) {
-        let lights_off::Resources { ws, itm } = cx.resources;
-        let port = &mut itm.stim[0];
+    #[task(schedule = [step], resources = [ws, itm, data, state])]
+    fn step(cx: step::Context) {
+        let step::Resources {
+            ws,
+            itm,
+            mut state,
+            data,
+        } = cx.resources;
+        // let port = &mut itm.stim[0];
 
-        hprintln!("OFF").unwrap();
-        iprintln!(port, "OFF");
+        // hprintln!("step").unwrap();
 
-        let empty = [RGB8::default(); NUM_LEDS];
-        ws.write(empty.iter().cloned())
-            .expect("Failed to write lights_off");
+        // Render the `data` array, and in a moment we'll compute the next `data` state:
+        ws.write(data.iter().cloned())
+            .expect("Failed to write lights");
+
+        let (next_state, actions) = next_state(&state);
+        // hprintln!(" - state in: {:?}", state);
+        // hprintln!(" - state out: {:?}", next_state);
+
+        // Action interpreter, updating the data state:
+        for action in actions.iter() {
+            // hprintln!("- {:?}", action).unwrap();
+            match action {
+                Action::Off { idx } => data[*idx] = BLACK,
+                Action::On { idx, colour } => data[*idx] = *colour,
+            }
+        }
+
+        // TODO: too specific - this should be some kind of clone() or assignment
+        // that doesn't care about what's inside of state
+        state.idx = next_state.idx;
+        state.dir = next_state.dir;
 
         cx.schedule
-            .lights_on(cx.scheduled + PERIOD.cycles())
-            .expect("Failed to schedule lights_on");
+            .step(cx.scheduled + PERIOD.cycles())
+            .expect("Failed to schedule step");
     }
 
     extern "C" {
