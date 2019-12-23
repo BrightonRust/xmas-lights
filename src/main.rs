@@ -15,7 +15,7 @@ use smart_leds::SmartLedsWrite;
 use smart_leds_trait::RGB8;
 
 use cortex_m::iprintln;
-use cortex_m_semihosting::hprintln;
+//use cortex_m_semihosting::hprintln;
 
 use rtfm::cyccnt::U32Ext;
 
@@ -108,7 +108,7 @@ const APP: () = {
         let lights_off::Resources { ws, itm } = cx.resources;
         let port = &mut itm.stim[0];
 
-        hprintln!("OFF").unwrap();
+        //hprintln!("OFF").unwrap();
         iprintln!(port, "OFF");
 
         let empty = [RGB8::default(); NUM_LEDS];
