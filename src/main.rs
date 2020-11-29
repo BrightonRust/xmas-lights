@@ -44,9 +44,14 @@ const APP: () = {
         // Device specific peripherals
         let dp: stm32::Peripherals = cx.device;
 
-        // Set up the system clock
+        // Set up the system clock, using the Nucleo's 8MHz crytal
+        // instead of the (less accurate) internal oscillator.
         let rcc = dp.RCC.constrain();
-        let clocks = rcc.cfgr.sysclk(CORE_CLOCK_MHZ.mhz()).freeze();
+        let clocks = rcc
+            .cfgr
+            .use_hse(8.mhz())
+            .sysclk(CORE_CLOCK_MHZ.mhz())
+            .freeze();
 
         // Initialize (enable) the monotonic timer (CYCCNT)
         cx.core.DCB.enable_trace();
