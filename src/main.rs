@@ -19,7 +19,9 @@ use cortex_m::{asm, iprintln};
 
 use rtfm::cyccnt::U32Ext;
 
-const PERIOD: u32 = 48_000_000;
+// CPU cycles per second
+const CORE_CLOCK_MHZ: u32 = 48;
+const PERIOD: u32 = CORE_CLOCK_MHZ * 1_000_000;
 const NUM_LEDS: usize = 4;
 
 // Types for WS
@@ -42,9 +44,9 @@ const APP: () = {
         // Device specific peripherals
         let dp: stm32::Peripherals = cx.device;
 
-        // Set up the system clock at 48MHz
+        // Set up the system clock
         let rcc = dp.RCC.constrain();
-        let clocks = rcc.cfgr.sysclk(48.mhz()).freeze();
+        let clocks = rcc.cfgr.sysclk(CORE_CLOCK_MHZ.mhz()).freeze();
 
         // Initialize (enable) the monotonic timer (CYCCNT)
         cx.core.DCB.enable_trace();
