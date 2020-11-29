@@ -23,12 +23,12 @@ const PERIOD: u32 = 48_000_000;
 const NUM_LEDS: usize = 4;
 
 // Types for WS
-use hal::gpio::gpiob::{PB3, PB5};
+use hal::gpio::gpioa::{PA5, PA7};
 use hal::gpio::{Alternate, AF5};
 use hal::spi::{NoMiso, Spi};
 use hal::stm32::SPI1;
 
-type Pins = (PB3<Alternate<AF5>>, NoMiso, PB5<Alternate<AF5>>);
+type Pins = (PA5<Alternate<AF5>>, NoMiso, PA7<Alternate<AF5>>);
 
 #[rtfm::app(device = stm32f4xx_hal::stm32, peripherals = true, monotonic = rtfm::cyccnt::CYCCNT)]
 const APP: () = {
@@ -54,12 +54,22 @@ const APP: () = {
         let itm = cx.core.ITM;
 
         // Configure pins for SPI
-        // We don't connect sck, but I think the SPI traits require it?
-        let gpiob = dp.GPIOB.split();
-        let sck = gpiob.pb3.into_alternate_af5();
+        // Use the SPI1 peripheral, this uses the following pins in "Alternative Function 5" mode:
+        // SCK  PA5 (Nucleo 64 "Morpho" header CN10 pin 11 and Arduino pin "D13"),
+        // MISO PA6 (Nucleo 64 "Morpho" header CN10 pin 13 and arduino header pin "D12")
+        // MOSI PA7 (Nucleo 64 "Morpho" header CN10 pin 15 and arduino header pin "D11")
+        //
+        // See "STM32F446xC/E Data Sheet" (Table 11 "Alternative Function"), and:
+        // "UM1724 User manual STM32 Nucleo-64 boards (MB1136)" (Table 19, and Table 29).
 
-        // Master Out Slave In - pb5, Nucleo 64 pin d4
-        let mosi = gpiob.pb5.into_alternate_af5();
+        // ... although we only need to use MOSI (master out slave in)
+        // n.b. PA5 is also connected to the Nucleo-64 LD2 (the on-board green LED), so this
+        // should switch on with ~50% brightness whilst SPI data is being sent.
+        //
+        // n.b. We can Specify `NoMiso`, but the SPI traits require an SPI clock pin.
+        let gpioa = dp.GPIOA.split();
+        let sck = gpioa.pa5.into_alternate_af5();
+        let mosi = gpioa.pa7.into_alternate_af5();
 
         let spi = Spi::spi1(
             dp.SPI1,
