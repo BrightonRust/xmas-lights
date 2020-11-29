@@ -14,7 +14,7 @@ use ws2812::Ws2812;
 use smart_leds::SmartLedsWrite;
 use smart_leds_trait::RGB8;
 
-use cortex_m::iprintln;
+use cortex_m::{asm, iprintln};
 //use cortex_m_semihosting::hprintln;
 
 use rtfm::cyccnt::U32Ext;
@@ -118,6 +118,13 @@ const APP: () = {
         cx.schedule
             .lights_on(cx.scheduled + PERIOD.cycles())
             .expect("Failed to schedule lights_on");
+    }
+
+    #[idle]
+    fn idle(_: idle::Context) -> ! {
+        loop {
+            asm::nop();
+        }
     }
 
     extern "C" {
