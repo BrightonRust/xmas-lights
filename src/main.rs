@@ -85,6 +85,7 @@ const APP: () = {
                 polarity: Polarity::IdleLow,
                 phase: Phase::CaptureOnFirstTransition,
             },
+            // Setup SPI clock to run at 3 MHz to keep WS2812s happy.
             stm32f4xx_hal::time::KiloHertz(3000).into(),
             clocks,
         );
