@@ -21,10 +21,12 @@ set backtrace limit 32
 
 monitor arm semihosting enable
 
-# send captured ITM to the file itm.fifo
+# send captured ITM to the file itm.txt
 # (the microcontroller SWO pin must be connected to the programmer SWO pin)
-# 48000000 must match the core clock frequency
+# The final arguement MUST match the core clock frequency in Hz.
 monitor tpiu config internal itm.txt uart off 48000000
+# The content of itm.txt can be read with:
+# itmdump -F -f itm.txt
 
 # # OR: make the microcontroller SWO pin output compatible with UART (8N1)
 # # 48000000 must match the core clock frequency
