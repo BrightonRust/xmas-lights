@@ -19,7 +19,7 @@ use smart_leds_trait::RGB8;
 use cortex_m::{asm, iprintln};
 //use cortex_m_semihosting::hprintln;
 
-use rtfm::cyccnt::U32Ext;
+use rtic::cyccnt::U32Ext;
 
 // CPU cycles per second
 const CORE_CLOCK_MHZ: u32 = 24;
@@ -34,7 +34,7 @@ use hal::stm32::SPI1;
 
 type Pins = (PA5<Alternate<AF5>>, NoMiso, PA7<Alternate<AF5>>);
 
-#[rtfm::app(device = stm32f4xx_hal::stm32, peripherals = true, monotonic = rtfm::cyccnt::CYCCNT)]
+#[rtic::app(device = stm32f4xx_hal::stm32, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
 const APP: () = {
     struct Resources {
         ws: Ws2812<Spi<SPI1, Pins>>,
