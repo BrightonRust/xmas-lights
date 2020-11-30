@@ -1,7 +1,9 @@
 #![no_main]
 #![no_std]
 
-extern crate panic_halt;
+//extern crate panic_halt
+use panic_semihosting as _; // logs messages to the host stderr; requires a debugger
+                            //extern crate panic_halt;
 
 use stm32f4xx_hal as hal;
 use ws2812_spi as ws2812;
