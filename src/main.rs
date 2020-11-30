@@ -22,7 +22,7 @@ use cortex_m::{asm, iprintln};
 use rtfm::cyccnt::U32Ext;
 
 // CPU cycles per second
-const CORE_CLOCK_MHZ: u32 = 48;
+const CORE_CLOCK_MHZ: u32 = 24;
 const PERIOD: u32 = CORE_CLOCK_MHZ * 1_000_000;
 const NUM_LEDS: usize = 4;
 

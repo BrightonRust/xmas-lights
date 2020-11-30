@@ -24,7 +24,8 @@ monitor arm semihosting enable
 # send captured ITM to the file itm.txt
 # (the microcontroller SWO pin must be connected to the programmer SWO pin)
 # The final arguement MUST match the core clock frequency in Hz.
-monitor tpiu config internal itm.txt uart off 48000000
+#monitor tpiu config internal itm.txt uart off 48000000
+monitor tpiu config internal itm.txt uart off 24000000
 # The content of itm.txt can be read with:
 # itmdump -F -f itm.txt
 
