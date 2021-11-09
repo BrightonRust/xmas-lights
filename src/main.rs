@@ -55,7 +55,7 @@ const APP: () = {
             .sysclk(CORE_CLOCK_MHZ.mhz())
             .freeze();
 
-        // Initialize (enable) the monotonic timer (CYCCNT)
+        // Initialize (enable) the RTIC monotonic timer (CYCCNT)
         cx.core.DCB.enable_trace();
         cx.core.DWT.enable_cycle_counter();
 
@@ -145,6 +145,8 @@ const APP: () = {
         }
     }
 
+    /// Give an *unused* interrupt to RTIC so that it can use this for scheduling
+    /// see https://rtic.rs/0.5/book/en/internals/tasks.html
     extern "C" {
         fn USART1();
     }
