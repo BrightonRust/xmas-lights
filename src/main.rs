@@ -79,14 +79,12 @@ const APP: () = {
         let gpioa = dp.GPIOA.split();
         let sck = gpioa.pa5.into_alternate_af5();
         let mosi = gpioa.pa7.into_alternate_af5();
+        let pins = (sck, NoMiso, mosi);
 
         let spi = Spi::spi1(
             dp.SPI1,
-            (sck, NoMiso, mosi),
-            Mode {
-                polarity: Polarity::IdleLow,
-                phase: Phase::CaptureOnFirstTransition,
-            },
+            pins,
+            ws2812::MODE,
             // Setup SPI clock to run at 3 MHz to keep WS2812s happy.
             stm32f4xx_hal::time::KiloHertz(3000).into(),
             clocks,
