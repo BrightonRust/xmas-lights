@@ -22,7 +22,7 @@ use cortex_m::{asm, iprintln};
 use rtic::cyccnt::U32Ext;
 
 // CPU cycles per second
-const CORE_CLOCK_MHZ: u32 = 24;
+const CORE_CLOCK_MHZ: u32 = 56;
 const PERIOD: u32 = CORE_CLOCK_MHZ * 1_000_000;
 const NUM_LEDS: usize = 4;
 
@@ -79,12 +79,34 @@ const APP: () = {
         let mosi = gpioa.pa7.into_alternate_af5();
         let pins = (sck, NoMiso, mosi);
 
+        // Clock setup in the stm32f4xx hal is currently a bit naff - it configured a clock which
+        // is close to the requested clock, based on how what it can attain using the way that
+        // other clocks in the microcontroller are setup (using a frequency divider).  There is no
+        // way to optimise other clocks outside of the SPI peripheral to obtain a specific
+        // frequency, and there is now way to find out what actual frequency has been acheived.
+        // This is ususally good enough with SPI devices (because there is a separate clock signal
+        // which the peripheral uses to synchronise to), but with the LED drivers we are using,
+        // this doesn't work because they don't use a clock signal, but instead work in a narrow
+        // frequency band, and use the content of the data signals themselves to synchronise
+        // instead.  With the core clock set to 56 MHz, the SPI peripheral will sets itself to:
+        //
+        // 56 MHz / 16 = 3.5 MHz
+        //
+        // ... which works for us (tm).
+        //
+        // Further reading:
+        //
+        // https://docs.rs/stm32f4xx-hal/latest/stm32f4xx_hal/rcc/index.html
+        //
+        // see also:
+        //
+        // https://github.com/stm32-rs/stm32f4xx-hal/issues/394
         let spi = Spi::spi1(
             dp.SPI1,
             pins,
             ws2812::MODE,
-            // Setup SPI clock to run at 3 MHz to keep WS2812s happy.
-            stm32f4xx_hal::time::KiloHertz(3000).into(),
+            // Setup SPI clock to run at 3.5 MHz to keep WS2811s happy.
+            stm32f4xx_hal::time::KiloHertz(3500).into(),
             clocks,
         );
 
