@@ -12,10 +12,10 @@ mod app {
     use ws2812_spi as ws2812;
 
     use hal::{
-        gpio::{NoPin, gpioa, Floating, Input},
-        spi::{self, Spi},
-        prelude::*,
+        gpio::{gpioa, Floating, Input, NoPin},
         pac,
+        prelude::*,
+        spi::{self, Spi},
         timer::{monotonic::MonoTimer, Timer},
     };
 
@@ -33,14 +33,14 @@ mod app {
     // Types for WS
 
     type F4Spi1 = Spi<
-            pac::SPI1,
-            (
-                gpioa::PA5<Input<Floating>>, // SPI clock pin (unused, but wanted by hal spi constructor)
-                NoPin,
-                gpioa::PA7<Input<Floating>>, // SPI MOSI (data out to led string).
-            ),
-            spi::TransferModeNormal,
-        >;
+        pac::SPI1,
+        (
+            gpioa::PA5<Input<Floating>>, // SPI clock pin (unused, but wanted by hal spi constructor)
+            NoPin,
+            gpioa::PA7<Input<Floating>>, // SPI MOSI (data out to led string).
+        ),
+        spi::TransferModeNormal,
+    >;
 
     #[shared]
     struct Shared {
@@ -63,11 +63,7 @@ mod app {
 
         // Set up the system clock, using the internal oscillator.
         let rcc = dp.RCC.constrain();
-        let clocks = rcc
-            .cfgr
-            .sysclk(CORE_CLOCK_MHZ.mhz())
-            .freeze();
-
+        let clocks = rcc.cfgr.sysclk(CORE_CLOCK_MHZ.mhz()).freeze();
 
         // ITM for debugging output
         cx.core.DCB.enable_trace();
@@ -125,18 +121,10 @@ mod app {
 
         let ws = Ws2812::new(spi);
 
-        lights_on::spawn()
-            .expect("failed schedule initial lights on");
+        lights_on::spawn().expect("failed schedule initial lights on");
         let mono = Timer::new(dp.TIM2, &clocks).monotonic();
 
-        (
-            Shared {
-                ws,
-                itm,
-            },
-            Local {},
-            init::Monotonics(mono),
-        )
+        (Shared { ws, itm }, Local {}, init::Monotonics(mono))
     }
 
     #[task(shared = [ws, itm])]
@@ -157,11 +145,9 @@ mod app {
         cx.shared.ws.lock(|ws| {
             ws.write(data.iter().cloned())
                 .expect("Failed to write lights_on");
-            });
+        });
 
-        lights_off::spawn_after(
-            1500.millis())
-            .expect("Failed to schedule lights_off");
+        lights_off::spawn_after(1500.millis()).expect("Failed to schedule lights_off");
     }
 
     #[task(shared = [ws, itm])]
@@ -175,11 +161,9 @@ mod app {
         cx.shared.ws.lock(|ws| {
             ws.write(empty.iter().cloned())
                 .expect("Failed to write lights_off");
-            });
+        });
 
-        lights_on::spawn_after(
-            1500.millis())
-            .expect("Failed to schedule lights_on");
+        lights_on::spawn_after(1500.millis()).expect("Failed to schedule lights_on");
     }
 
     #[idle]
