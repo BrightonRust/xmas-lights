@@ -1,7 +1,11 @@
 #![no_main]
 #![no_std]
 
-use panic_semihosting as _; // logs messages to the host stderr; requires a debugger
+use defmt_rtt as _; // global logger using RTT (e.g. probe-run).
+
+// logs panic message using "probe-run"
+// https://github.com/knurling-rs/probe-run
+use panic_probe as _;
 
 // Give an *unused* interrupt to RTIC so that it can use this for scheduling
 // see https://rtic.rs/dev/book/en/by-example/software_tasks.html
@@ -24,7 +28,7 @@ mod app {
     use smart_leds::SmartLedsWrite;
     use smart_leds_trait::RGB8;
 
-    use cortex_m::{asm, iprintln};
+    use cortex_m::asm;
 
     // CPU cycles per second
     const CORE_CLOCK_MHZ: u32 = 56;
@@ -45,7 +49,6 @@ mod app {
     #[shared]
     struct Shared {
         ws: ws2812_spi::Ws2812<F4Spi1>,
-        itm: cortex_m::peripheral::ITM,
     }
 
     #[local]
@@ -57,7 +60,8 @@ mod app {
     type MicrosecMono = MonoTimer<pac::TIM2, 1_000_000>;
 
     #[init]
-    fn init(mut cx: init::Context) -> (Shared, Local, init::Monotonics) {
+    fn init(cx: init::Context) -> (Shared, Local, init::Monotonics) {
+        defmt::println!("In init...");
         // Device specific peripherals
         let dp = cx.device;
 
@@ -65,9 +69,8 @@ mod app {
         let rcc = dp.RCC.constrain();
         let clocks = rcc.cfgr.sysclk(CORE_CLOCK_MHZ.mhz()).freeze();
 
-        // ITM for debugging output
-        cx.core.DCB.enable_trace();
-        let itm = cx.core.ITM;
+        // If using ITM for debugging output
+        //cx.core.DCB.enable_trace();
 
         // Configure pins for SPI
         // Use the SPI1 peripheral, this uses the following pins in "Alternative Function 5" mode:
@@ -124,16 +127,12 @@ mod app {
         lights_on::spawn().expect("failed schedule initial lights on");
         let mono = Timer::new(dp.TIM2, &clocks).monotonic();
 
-        (Shared { ws, itm }, Local {}, init::Monotonics(mono))
+        (Shared { ws }, Local {}, init::Monotonics(mono))
     }
 
-    #[task(shared = [ws, itm])]
+    #[task(shared = [ws])]
     fn lights_on(mut cx: lights_on::Context) {
-        cx.shared.itm.lock(|itm| {
-            let port = &mut itm.stim[0];
-
-            iprintln!(port, "ON");
-        });
+        defmt::println!("ON");
 
         let blue = RGB8 {
             b: 0xa0,
@@ -150,12 +149,9 @@ mod app {
         lights_off::spawn_after(1500.millis()).expect("Failed to schedule lights_off");
     }
 
-    #[task(shared = [ws, itm])]
+    #[task(shared = [ws])]
     fn lights_off(mut cx: lights_off::Context) {
-        cx.shared.itm.lock(|itm| {
-            let port = &mut itm.stim[0];
-            iprintln!(port, "OFF");
-        });
+        defmt::println!("OFF");
 
         let empty = [RGB8::default(); NUM_LEDS];
         cx.shared.ws.lock(|ws| {
