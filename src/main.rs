@@ -54,7 +54,10 @@ mod app {
     #[local]
     struct Local {}
 
-    // Use the rtic monotomic timer provided by the stm32f4xx_hal crate
+    // Use the rtic monotomic timer provided by the stm32f4xx_hal crate:
+    // https://github.com/stm32-rs/stm32f4xx-hal/pull/380
+    //
+    // see also:
     // https://rtic.rs/dev/book/en/by-example/monotonic.html
     #[monotonic(binds = TIM2, default = true)]
     type MicrosecMono = MonoTimer<pac::TIM2, 1_000_000>;
