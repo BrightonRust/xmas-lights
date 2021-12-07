@@ -1,50 +1,65 @@
 #![no_main]
 #![no_std]
 
-//extern crate panic_halt
 use panic_semihosting as _; // logs messages to the host stderr; requires a debugger
-                            //extern crate panic_halt;
 
-use stm32f4xx_hal as hal;
-use ws2812_spi as ws2812;
+// Give an *unused* interrupt to RTIC so that it can use this for scheduling
+// see https://rtic.rs/dev/book/en/by-example/software_tasks.html
+#[rtic::app(device = hal::pac, dispatchers = [USART1])]
+mod app {
+    use fugit::ExtU32;
+    use stm32f4xx_hal as hal;
+    use ws2812_spi as ws2812;
 
-use hal::spi::*;
-use hal::{prelude::*, stm32};
+    use hal::{
+        gpio::{NoPin, gpioa, Floating, Input},
+        spi::{self, Spi},
+        prelude::*,
+        pac,
+        timer::{monotonic::MonoTimer, Timer},
+    };
 
-use ws2812::Ws2812;
+    use ws2812::Ws2812;
 
-use smart_leds::SmartLedsWrite;
-use smart_leds_trait::RGB8;
+    use smart_leds::SmartLedsWrite;
+    use smart_leds_trait::RGB8;
 
-use cortex_m::{asm, iprintln};
-//use cortex_m_semihosting::hprintln;
+    use cortex_m::{asm, iprintln};
 
-use rtic::cyccnt::U32Ext;
+    // CPU cycles per second
+    const CORE_CLOCK_MHZ: u32 = 56;
+    const NUM_LEDS: usize = 4;
 
-// CPU cycles per second
-const CORE_CLOCK_MHZ: u32 = 56;
-const PERIOD: u32 = CORE_CLOCK_MHZ * 1_000_000;
-const NUM_LEDS: usize = 4;
+    // Types for WS
 
-// Types for WS
-use hal::gpio::gpioa::{PA5, PA7};
-use hal::gpio::{Alternate, AF5};
-use hal::spi::{NoMiso, Spi};
-use hal::stm32::SPI1;
+    type F4Spi1 = Spi<
+            pac::SPI1,
+            (
+                gpioa::PA5<Input<Floating>>, // SPI clock pin (unused, but wanted by hal spi constructor)
+                NoPin,
+                gpioa::PA7<Input<Floating>>, // SPI MOSI (data out to led string).
+            ),
+            spi::TransferModeNormal,
+        >;
 
-type Pins = (PA5<Alternate<AF5>>, NoMiso, PA7<Alternate<AF5>>);
-
-#[rtic::app(device = stm32f4xx_hal::stm32, peripherals = true, monotonic = rtic::cyccnt::CYCCNT)]
-const APP: () = {
-    struct Resources {
-        ws: Ws2812<Spi<SPI1, Pins>>,
+    #[shared]
+    struct Shared {
+        ws: ws2812_spi::Ws2812<F4Spi1>,
         itm: cortex_m::peripheral::ITM,
     }
 
-    #[init(schedule = [lights_on])]
-    fn init(mut cx: init::Context) -> init::LateResources {
+    #[local]
+    struct Local {}
+
+    // Use the rtic monotomic timer provided by the stm32f4xx_hal crate
+    // https://rtic.rs/dev/book/en/by-example/monotonic.html
+    #[monotonic(binds = TIM2, default = true)]
+    type MicrosecMono = MonoTimer<pac::TIM2, 1_000_000>;
+
+    #[init]
+    fn init(mut cx: init::Context) -> (Shared, Local, init::Monotonics) {
         // Device specific peripherals
-        let dp: stm32::Peripherals = cx.device;
+        let dp = cx.device;
 
         // Set up the system clock, using the internal oscillator.
         let rcc = dp.RCC.constrain();
@@ -53,11 +68,9 @@ const APP: () = {
             .sysclk(CORE_CLOCK_MHZ.mhz())
             .freeze();
 
-        // Initialize (enable) the RTIC monotonic timer (CYCCNT)
-        cx.core.DCB.enable_trace();
-        cx.core.DWT.enable_cycle_counter();
 
         // ITM for debugging output
+        cx.core.DCB.enable_trace();
         let itm = cx.core.ITM;
 
         // Configure pins for SPI
@@ -75,9 +88,9 @@ const APP: () = {
         //
         // n.b. We can Specify `NoMiso`, but the SPI traits require an SPI clock pin.
         let gpioa = dp.GPIOA.split();
-        let sck = gpioa.pa5.into_alternate_af5();
-        let mosi = gpioa.pa7.into_alternate_af5();
-        let pins = (sck, NoMiso, mosi);
+        let sck = gpioa.pa5;
+        let mosi = gpioa.pa7;
+        let pins = (sck, NoPin, mosi);
 
         // Clock setup in the stm32f4xx hal is currently a bit naff - it configured a clock which
         // is close to the requested clock, based on how what it can attain using the way that
@@ -101,30 +114,38 @@ const APP: () = {
         // see also:
         //
         // https://github.com/stm32-rs/stm32f4xx-hal/issues/394
-        let spi = Spi::spi1(
+        let spi = Spi::new(
             dp.SPI1,
             pins,
             ws2812::MODE,
             // Setup SPI clock to run at 3.5 MHz to keep WS2811s happy.
-            stm32f4xx_hal::time::KiloHertz(3500).into(),
-            clocks,
+            3500.khz(),
+            &clocks,
         );
 
         let ws = Ws2812::new(spi);
 
-        cx.schedule
-            .lights_on(cx.start + PERIOD.cycles())
+        lights_on::spawn()
             .expect("failed schedule initial lights on");
+        let mono = Timer::new(dp.TIM2, &clocks).monotonic();
 
-        init::LateResources { ws, itm }
+        (
+            Shared {
+                ws,
+                itm,
+            },
+            Local {},
+            init::Monotonics(mono),
+        )
     }
 
-    #[task(schedule = [lights_off], resources = [ws, itm])]
-    fn lights_on(cx: lights_on::Context) {
-        let lights_on::Resources { ws, itm } = cx.resources;
-        let port = &mut itm.stim[0];
+    #[task(shared = [ws, itm])]
+    fn lights_on(mut cx: lights_on::Context) {
+        cx.shared.itm.lock(|itm| {
+            let port = &mut itm.stim[0];
 
-        iprintln!(port, "ON");
+            iprintln!(port, "ON");
+        });
 
         let blue = RGB8 {
             b: 0xa0,
@@ -133,28 +154,31 @@ const APP: () = {
         };
         let data = [blue; NUM_LEDS];
 
-        ws.write(data.iter().cloned())
-            .expect("Failed to write lights_on");
+        cx.shared.ws.lock(|ws| {
+            ws.write(data.iter().cloned())
+                .expect("Failed to write lights_on");
+            });
 
-        cx.schedule
-            .lights_off(cx.scheduled + PERIOD.cycles())
+        lights_off::spawn_after(
+            1500.millis())
             .expect("Failed to schedule lights_off");
     }
 
-    #[task(schedule = [lights_on], resources = [ws, itm])]
-    fn lights_off(cx: lights_off::Context) {
-        let lights_off::Resources { ws, itm } = cx.resources;
-        let port = &mut itm.stim[0];
-
-        //hprintln!("OFF").unwrap();
-        iprintln!(port, "OFF");
+    #[task(shared = [ws, itm])]
+    fn lights_off(mut cx: lights_off::Context) {
+        cx.shared.itm.lock(|itm| {
+            let port = &mut itm.stim[0];
+            iprintln!(port, "OFF");
+        });
 
         let empty = [RGB8::default(); NUM_LEDS];
-        ws.write(empty.iter().cloned())
-            .expect("Failed to write lights_off");
+        cx.shared.ws.lock(|ws| {
+            ws.write(empty.iter().cloned())
+                .expect("Failed to write lights_off");
+            });
 
-        cx.schedule
-            .lights_on(cx.scheduled + PERIOD.cycles())
+        lights_on::spawn_after(
+            1500.millis())
             .expect("Failed to schedule lights_on");
     }
 
@@ -164,10 +188,4 @@ const APP: () = {
             asm::nop();
         }
     }
-
-    /// Give an *unused* interrupt to RTIC so that it can use this for scheduling
-    /// see https://rtic.rs/0.5/book/en/internals/tasks.html
-    extern "C" {
-        fn USART1();
-    }
-};
+}
