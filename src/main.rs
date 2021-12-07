@@ -92,20 +92,20 @@ mod app {
         let mosi = gpioa.pa7;
         let pins = (sck, NoPin, mosi);
 
-        // Clock setup in the stm32f4xx hal is currently a bit naff - it configured a clock which
-        // is close to the requested clock, based on how what it can attain using the way that
+        // Clock setup in the stm32f4xx hal is currently a bit naff - it configures a clock which
+        // is close to the requested clock, based on what it can attain as a result of the way that
         // other clocks in the microcontroller are setup (using a frequency divider).  There is no
-        // way to optimise other clocks outside of the SPI peripheral to obtain a specific
-        // frequency, and there is now way to find out what actual frequency has been acheived.
-        // This is ususally good enough with SPI devices (because there is a separate clock signal
+        // way to optimise other clocks outside of the SPI peripheral to attain a specific SPI
+        // frequency, and there is no way to find out what actual frequency has been acheived.
+        // This is usually good enough with SPI devices (because there is a separate clock signal
         // which the peripheral uses to synchronise to), but with the LED drivers we are using,
         // this doesn't work because they don't use a clock signal, but instead work in a narrow
         // frequency band, and use the content of the data signals themselves to synchronise
-        // instead.  With the core clock set to 56 MHz, the SPI peripheral will sets itself to:
+        // instead.  With the core clock set to 56 MHz, the SPI peripheral will set itself to:
         //
         // 56 MHz / 16 = 3.5 MHz
         //
-        // ... which works for us (tm).
+        // ... which works for me (tm).
         //
         // Further reading:
         //
